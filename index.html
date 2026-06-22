@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Anti-Bullying Interactive System</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* ================= GLOBAL BASE STYLES ================= */
+        * { box-sizing: border-box; }
+        body, html {
+            margin: 0; padding: 0; width: 100vw; height: 100vh;
+            background-color: #fdfaf0; 
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            overflow: hidden; 
+            color: #333;
+        }
+
+        /* ================= 🚨 强效横屏提示遮罩 ================= */
+        #rotate-overlay { 
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
+            background: #1a1a1a; z-index: 999999; color: white; 
+            flex-direction: column; justify-content: center; align-items: center; 
+        }
+        @media (orientation: portrait) { #rotate-overlay { display: flex; } }
+
+        #app { position: relative; width: 100%; height: 100%; display: flex; }
+
+        /* ================= VIEW CONTAINER (完美靠左排版) ================= */
+        .view-container { 
+            position: relative; 
+            flex: 1; 
+            height: 100%; 
+            padding-right: 340px; 
+            box-sizing: border-box;
+        }
+        .view {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; pointer-events: none; 
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            transform: translateY(15px);
+            padding: 50px 40px 80px 60px;
+            display: flex; 
+            flex-direction: column;
+            align-items: flex-start; 
+            overflow-y: auto; 
+        }
+        .view.active { opacity: 1; pointer-events: auto; z-index: 10; transform: translateY(0); }
+        .view::-webkit-scrollbar { width: 0px; }
+
+        /* ================= SVG CIRCULAR NAVIGATION ================= */
+        .side-nav { 
+            position: absolute; right: 0; top: 50%; transform: translateY(-50%); 
+            height: 65vh; aspect-ratio: 1 / 2; z-index: 50; 
+        }
+        @media (max-width: 900px) { .side-nav { transform: translateY(-50%) scale(0.85); right: -10px; } }
+        svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(-5px 5px 15px rgba(0,0,0,0.08)); }
+        .nav-item { cursor: pointer; transform-origin: 250px 250px; transition: all 0.3s ease; outline: none; }
+        .nav-item path { fill: #ffffff; stroke: #333; stroke-width: 3; transition: all 0.3s ease; }
+        .nav-item text { fill: #333; font-size: 22px; font-weight: bold; pointer-events: none; text-anchor: middle; dominant-baseline: middle; }
+        .nav-item:hover path { fill: #ffebee; }
+        .nav-item:focus path { fill: #ffebee; stroke: #2196f3; }
+        .nav-item.active { transform: scale(1.08); }
+        .nav-item.active path { fill: #ffca28; }
+        .nav-item.home-btn.active { transform: scale(1.1); }
+
+        /* ================= GLOBAL COMPONENTS (MARQUEE & AI) ================= */
+        .marquee-container { position: absolute; bottom: 0; left: 0; width: 100%; height: 40px; background-color: #4caf50; color: white; display: flex; align-items: center; overflow: hidden; z-index: 60; }
+        .marquee-text { white-space: nowrap; font-size: 16px; font-weight: bold; animation: scroll-left 18s linear infinite; }
+        @keyframes scroll-left { 0% { transform: translateX(100vw); } 100% { transform: translateX(-100%); } }
+
+        .ai-ball { 
+            position: absolute; right: 320px; bottom: 60px; width: 60px; height: 60px; 
+            background-color: #fff; border: 2px solid #333; border-radius: 50%; display: flex; 
+            justify-content: center; align-items: center; font-weight: bold; cursor: pointer; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            transition: transform 0.3s; 
+        }
+        .ai-ball:hover { transform: scale(1.1); background-color: #e3f2fd; }
+        @media (max-width: 900px) { .ai-ball { right: 280px; } }
+        
+        .ai-modal { position: absolute; right: 330px; bottom: 130px; width: 310px; height: 400px; background: #fff; border: 2px solid #2196f3; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 110; display: none; flex-direction: column; overflow: hidden; animation: popUp 0.3s ease-out; }
+        @keyframes popUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .ai-header { background: #2196f3; color: white; padding: 10px 15px; font-weight: bold; display: flex; justify-content: space-between; }
+        
+        .ai-body { padding: 15px; flex: 1; overflow-y: auto; font-size: 13px; line-height: 1.5; background: #fafafa; display: flex; flex-direction: column; gap: 10px; }
+        .msg { padding: 8px 12px; border-radius: 8px; max-width: 85%; word-wrap: break-word; }
+        .msg.user { background: #e3f2fd; color: #0d47a1; align-self: flex-end; border: 1px solid #bbdefb; }
+        .msg.bot { background: #fff; color: #333; align-self: flex-start; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .msg.loading { background: #eee; color: #888; align-self: flex-start; font-style: italic; animation: pulse 1s infinite alternate; }
+
+        .ai-footer { display: flex; padding: 10px; border-top: 2px solid #2196f3; background: #fff; }
+        .ai-input-area { flex: 1; display: flex; align-items: center; gap: 8px; }
+        .ai-input-area input { flex: 1; padding: 8px; border: 2px solid #ccc; border-radius: 8px; font-size: 13px; outline: none; }
+        .ai-input-area button { padding: 8px 15px; background: #2196f3; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+
+        /* ================= INNER PAGES STYLE ================= */
+        .page-title { font-size: clamp(18px, 2.2vw, 24px); border: 2px solid #333; border-radius: 8px; padding: 6px 16px; display: inline-block; margin-bottom: 25px; background: #fff; font-weight: bold; }
+        .home-title { font-size: clamp(36px, 4.5vw, 65px); border-bottom: 4px solid #333; display: inline-block; padding-bottom: 10px; margin-bottom: 25px; margin-top: 0px; font-weight: bold; text-align: left; }
+        .home-meaning-box { background: #fff; border: 2px solid #333; border-radius: 8px; padding: 22px 26px; width: auto; max-width: 850px; margin-bottom: 25px; font-size: clamp(16px, 1.8vw, 20px); line-height: 1.6; border-left: 8px solid #e53935; text-align: left; }
+        .home-meaning-box i { font-weight: bold; color: #b71c1c; font-size: clamp(18px, 2vw, 24px); display: inline-block; margin-bottom: 6px; }
+        .home-desc { font-size: clamp(15px, 1.8vw, 18px); line-height: 1.6; color: #555; max-width: 850px; text-align: left; }
+
+        .card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; width: 100%; max-width: 1100px; padding-bottom: 10px; }
+        .flip-card { background-color: transparent; height: calc(29vh - 10px); perspective: 1000px; outline: none; }
+        .flip-card-inner { position: relative; width: 100%; height: 100%; text-align: center; transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1); transform-style: preserve-3d; }
+        .flip-card:hover .flip-card-inner, .flip-card:focus .flip-card-inner, .flip-card.kb-flipped .flip-card-inner { transform: rotateY(180deg); }
+        .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; flex-direction: column; border-radius: 12px; border: 2px solid #333; padding: 12px 14px; }
+        .flip-card-front { background-color: #fff; font-size: 19px; font-weight: bold; justify-content: center; align-items: center; transform: rotateY(0deg); z-index: 2; }
+        .flip-card-back { background-color: #fff9c4; text-align: left; justify-content: flex-start; align-items: flex-start; transform: rotateY(180deg); overflow-y: auto; }
+        .flip-card-back::-webkit-scrollbar { width: 0px; }
+        .card-def-label { font-weight: bold; color: #b71c1c; font-size: 12px; margin-bottom: 2px; border-bottom: 1px dashed #aaa; width: 100%; }
+        .card-def-text { font-size: 12px; line-height: 1.35; color: #333; margin-bottom: 6px; }
+        .card-impact-label { font-weight: bold; color: #1b5e20; font-size: 12px; margin-bottom: 2px; border-bottom: 1px dashed #aaa; width: 100%; }
+
+        .data-content { display: flex; align-items: stretch; gap: 40px; width: 100%; max-width: 1000px; background: #fff; border: 2px solid #333; border-radius: 12px; padding: 25px; }
+        .chart-box-pie { flex: 1; position: relative; max-width: 400px; display: flex; flex-direction: column; align-items: center; }
+        .chart-box-bar { flex: 1.3; position: relative; display: flex; flex-direction: column; justify-content: center; }
+        .chart-sub-title { font-weight: bold; margin-bottom: 10px; font-size: 15px; text-align: center; color: #555; }
+
+        .solution-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; width: 100%; max-width: 950px; }
+        .sol-box { background: #fff; border: 2px solid #333; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; text-align: left; }
+        .sol-box h3 { margin: 0 0 10px 0; font-size: 18px; color: #1b5e20; border-left: 4px solid #4caf50; padding-left: 8px; }
+        .sol-box p { margin: 0; font-size: 14px; line-height: 1.5; color: #555; }
+    </style>
+</head>
+<body>
+
+<div id="rotate-overlay">
+    <h1 style="font-size: 40px;">⚠️ 请横屏使用</h1>
+    <p style="font-size: 20px;">为了获得最佳交互体验，请将设备横向放置。</p>
+</div>
+
+<div id="app">
+    <main class="view-container">
+        <article class="view active" id="view-0">
+            <h1 class="home-title">Anti-Bullying Guide</h1>
+            <div class="home-meaning-box">
+                <i>What is Bullying?</i><br>
+                Bullying is unwanted, aggressive behavior among school-aged children that involves a real or perceived power imbalance. The behavior is repeated over time, causing severe physical or psychological distress.
+            </div>
+            <p class="home-desc">Welcome to the Anti-Bullying Interactive Guide System.<br><br>Click the <b>Circular Menu</b> on the right to freely switch between sections and explore vital information.</p>
+        </article>
+
+        <section class="view" id="view-1">
+            <div class="page-title">Types of Bullying & Their Impacts</div>
+            <div class="card-grid">
+                <div class="flip-card" tabindex="0"><div class="flip-card-inner"><div class="flip-card-front">Physical Bullying</div><div class="flip-card-back"><div class="card-def-label">Definition:</div><div class="card-def-text">Pushing, hitting, tripping, taking or damaging belongings.</div><div class="card-impact-label">Impact on Victim:</div><div class="card-def-text">Causes direct bodily injuries, chronic pain, and fear of school.</div></div></div></div>
+                <div class="flip-card" tabindex="0"><div class="flip-card-inner"><div class="flip-card-front">Verbal Bullying</div><div class="flip-card-back"><div class="card-def-label">Definition:</div><div class="card-def-text">Teasing, name-calling, insulting, or making malicious threats.</div><div class="card-impact-label">Impact on Victim:</div><div class="card-def-text">Erodes self-esteem and triggers severe academic decline.</div></div></div></div>
+                <div class="flip-card" tabindex="0"><div class="flip-card-inner"><div class="flip-card-front">Social Bullying</div><div class="flip-card-back"><div class="card-def-label">Definition:</div><div class="card-def-text">Spreading rumors, social exclusion, or isolating a peer.</div><div class="card-impact-label">Impact on Victim:</div><div class="card-def-text">Leads to intense feelings of loneliness and deep depression.</div></div></div></div>
+                <div class="flip-card" tabindex="0"><div class="flip-card-inner"><div class="flip-card-front">Cyber Bullying</div><div class="flip-card-back"><div class="card-def-label">Definition:</div><div class="card-def-text">Sending abusive text messages or private info on social media.</div><div class="card-impact-label">Impact on Victim:</div><div class="card-def-text">Creates inescapable danger 24/7 and public humiliation.</div></div></div></div>
+                <div class="flip-card" tabindex="0"><div class="flip-card-inner"><div class="flip-card-front">Sexual Bullying</div><div class="flip-card-back"><div class="card-def-label">Definition:</div><div class="card-def-text">Using crude remarks, inappropriate gestures, or unwelcome touching.</div><div class="card-impact-label">Impact on Victim:</div><div class="card-def-text">Induces profound psychological trauma and body image distortion.</div></div></div></div>
+                <div class="flip-card" tabindex="0"><div class="flip-card-inner"><div class="flip-card-front">Covert Bullying</div><div class="flip-card-back"><div class="card-def-label">Definition:</div><div class="card-def-text">Subtle hidden behaviors, toxic whispering, or glaring.</div><div class="card-impact-label">Impact on Victim:</div><div class="card-def-text">Causes paranoia, progressive stress, and quiet suffering.</div></div></div></div>
+            </div>
+        </section>
+
+        <section class="view" id="view-2">
+            <div class="page-title">Data Analysis (2020 - 2025)</div>
+            <div class="data-content">
+                <div class="chart-box-pie">
+                    <div class="chart-sub-title">Overall Bullying Breakdown</div>
+                    <canvas id="pieChartCanvas"></canvas>
+                </div>
+                <div class="chart-box-bar">
+                    <div class="chart-sub-title">Annual Cases & Top 3 Incidents</div>
+                    <canvas id="barChartCanvas"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section class="view" id="view-3">
+            <div class="page-title">Solutions & Actions</div>
+            <div class="solution-grid">
+                <div class="sol-box"><h3>1. Verbal Response</h3><p>Stay calm, speak up confidently with boundaries, and walk away.</p></div>
+                <div class="sol-box"><h3>2. Cyber Defense</h3><p>Take screenshots to preserve evidence, block accounts, and report.</p></div>
+                <div class="sol-box"><h3>3. School Reporting</h3><p>Report safely through the school's safe anonymous grievance channels.</p></div>
+                <div class="sol-box"><h3>4. Trusted Adults</h3><p>Confide in parents, school guidance counselors, or trusted teachers.</p></div>
+                <div class="sol-box"><h3>5. Peer Support</h3><p>Stand up as an active bystander, assist victims safely, and prevent isolation.</p></div>
+                <div class="sol-box"><h3>6. Legal & Hotlines</h3><p>Contact local safety authorities or dial dedicated helplines (110 / 12355).</p></div>
+            </div>
+        </section>
+    </main>
+
+    <nav class="side-nav" aria-label="Circular Interactive Menu">
+        <svg viewBox="0 0 250 500" xmlns="http://www.w3.org/2000/svg">
+            <g class="nav-item" id="nav-1" onclick="goToView(1, this)" role="button" tabindex="0">
+                <path d="M 250 250 L 250 0 A 250 250 0 0 0 33.5 125 Z" />
+                <text x="135" y="90" transform="rotate(-30, 140, 90)">Types</text>
+            </g>
+            <g class="nav-item" id="nav-2" onclick="goToView(2, this)" role="button" tabindex="0">
+                <path d="M 250 250 L 33.5 125 A 250 250 0 0 0 33.5 375 Z" />
+                <text x="80" y="250">Data</text>
+            </g>
+            <g class="nav-item" id="nav-3" onclick="goToView(3, this)" role="button" tabindex="0">
+                <path d="M 250 250 L 33.5 375 A 250 250 0 0 0 250 500 Z" />
+                <text x="135" y="410" transform="rotate(30, 140, 410)">Action</text>
+            </g>
+            <g class="nav-item home-btn active" id="nav-0" onclick="goToView(0, this)" role="button" tabindex="0">
+                <path d="M 250 150 A 100 100 0 0 0 250 350 Z" />
+                <text x="190" y="250">Home</text>
+            </g>
+        </svg>
+    </nav>
+
+    <div class="marquee-container">
+        <div class="marquee-text">⚠️ EMERGENCY WARNING: If you are experiencing bullying, please call Emergency Police: 110 ｜ National Youth Hotline: 12355 ｜ Never bow down to bullying!</div>
+    </div>
+
+    <button class="ai-ball" id="ai-btn">AI</button>
+    <div class="ai-modal" id="ai-modal">
+        <div class="ai-header"><span>AI Live Counselor (Gemini Core)</span> <span id="close-ai">✖</span></div>
+        <div class="ai-body" id="ai-chat-body">
+            <div class="msg bot">Hello! I am your real-time intelligent AI Counselor powered by Gemini. 😺</div>
+            <div class="msg bot">You can ask me ANYTHING! E.g., "What is physical bullying?" or "Where is Malaysia?"</div>
+        </div>
+        <div class="ai-footer">
+            <div class="ai-input-area">
+                <input type="text" id="ai-input" placeholder="Type your full question here...">
+                <button id="ai-send">Send</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 🌟 你的真实 AQ. 密钥
+    const GEMINI_API_KEY = "AQ.Ab8RN6LoRXmAtrB2nReRJTnyMUwHJBc4yy3QNKCNEAm0ulkkig"; 
+
+    const views = document.querySelectorAll('.view');
+    const navItems = document.querySelectorAll('.nav-item');
+    window.goToView = function(index, element) {
+        views.forEach(view => view.classList.remove('active'));
+        navItems.forEach(item => item.classList.remove('active'));
+        document.getElementById(`view-${index}`).classList.add('active');
+        element.classList.add('active');
+    }
+
+    const aiBtn = document.getElementById('ai-btn');
+    const aiModal = document.getElementById('ai-modal');
+    const closeAi = document.getElementById('close-ai');
+    const aiInput = document.getElementById('ai-input');
+    const aiSend = document.getElementById('ai-send');
+    const aiChatBody = document.getElementById('ai-chat-body');
+
+    aiBtn.addEventListener('click', () => {
+        const isNone = aiModal.style.display !== 'flex';
+        aiModal.style.display = isNone ? 'flex' : 'none';
+        if(isNone) aiInput.focus();
+    });
+    closeAi.addEventListener('click', () => aiModal.style.display = 'none');
+
+    aiSend.addEventListener('click', callGeminiAI);
+    aiInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') callGeminiAI(); });
+
+    async function callGeminiAI() {
+        const prompt = aiInput.value.trim();
+        if (!prompt) return;
+
+        appendMsg(prompt, 'user');
+        aiInput.value = '';
+        const loadId = appendMsg('Gemini is thinking...', 'loading');
+
+        try {
+            const systemInstruction = `
+                You are the exclusive smart counselor for the Anti-Bullying Guide website.
+                CRITICAL INSTRUCTION: You must analyze the user's natural sentence intent, but you MUST ONLY reply using the website's factual content provided below. Do NOT use outside web facts.
+
+                [WEBSITE FACTS DATABASE]
+                - General Bullying Definition: Unwanted, aggressive behavior among school-aged children involving a real or perceived power imbalance, repeated over time, causing physical or mental trauma.
+                - Physical Bullying: Pushing, hitting, tripping, taking or damaging belongings. Impact: bodily injury, chronic pain, school fear.
+                - Verbal Bullying: Teasing, name-calling, insulting, malicious threats. Impact: erodes self-esteem, drops academic score.
+                - Social Bullying: Rumors, intentional exclusion, peer isolation. Impact: intense loneliness, deep depression.
+                - Cyber Bullying: Toxic messages, leaking privacy on social media. Impact: 24/7 exposure, public humiliation.
+                - Sexual Bullying: Crude words, inappropriate body gestures, unwelcome touching. Impact: intense shame, body distortion.
+                - Covert Bullying: Silent cold violence, dirty glaring, hiding behaviors behind back. Impact: paranoia, quiet mental suffering.
+                - Crisis Helplines: Emergency Police (110) ｜ National Youth Hotline (12355).
+                - Actions & Solutions: Speak up confidently and walk away, take screenshots of cyber cyberbullying for proof, block accounts, report securely to school guidance counselors.
+
+                [SECURITY PROTOCOL]
+                If the user is asking general open-ended chat topics (e.g. weather, homework, gaming, general knowledge, coding) that are NOT related to this bullying corpus, you MUST ignore your global training memory and answer EXACTLY with:
+                "I am sorry, but as the dedicated system counselor, I am strictly restricted to answering questions regarding our campus anti-bullying types, analysis, and emergency hotlines. Please try again."
+            `;
+
+            // 🌟 终极防弹处理：使用最原始的字符串拼接，绝不给浏览器报错的机会！
+            const targetUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY;
+
+            const response = await fetch(targetUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    "contents": [{ "parts": [{ "text": systemInstruction + "\n\nUser Question: " + prompt }] }],
+                    "safetySettings": [
+                        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                        { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+                        { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+                    ]
+                })
+            });
+
+            const data = await response.json();
+            removeLoading(loadId);
+
+            if (!response.ok) {
+                appendMsg("⚠️ API Error: " + (data.error ? data.error.message : "Request failed"), 'bot');
+                return;
+            }
+
+            if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts[0].text) {
+                appendMsg(data.candidates[0].content.parts[0].text, 'bot');
+            } else if (data.promptFeedback && data.promptFeedback.blockReason) {
+                appendMsg("⚠️ Blocked by Google Safety Filters.", 'bot');
+            } else {
+                appendMsg("⚠️ Unknown API format received.", 'bot');
+            }
+
+        } catch (error) {
+            removeLoading(loadId);
+            appendMsg("❌ Network Error: " + error.message, 'bot');
+        }
+    }
+
+    function appendMsg(content, type) {
+        const div = document.createElement('div');
+        div.className = `msg ${type}`;
+        div.textContent = content;
+        aiChatBody.appendChild(div);
+        aiChatBody.scrollTop = aiChatBody.scrollHeight;
+        return div.id;
+    }
+    function removeLoading(id) { const el = document.getElementById(id); if (el) el.remove(); }
+</script>
+<script>
+    const ctxPie = document.getElementById('pieChartCanvas').getContext('2d');
+    new Chart(ctxPie, {
+        type: 'pie',
+        data: {
+            labels: ['Physical', 'Verbal', 'Social', 'Cyber', 'Sexual', 'Covert'],
+            datasets: [{
+                data: [15, 30, 25, 15, 8, 7],
+                backgroundColor: ['#e53935', '#ffca28', '#4caf50', '#2196f3', '#9c27b0', '#ff9800'],
+                borderWidth: 2, borderColor: '#333'
+            }]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 12, weight: 'bold' } } } } }
+    });
+
+    const top3DataByYear = {
+        2020: ['1. Verbal (40%)', '2. Social (30%)', '3. Physical (20%)'],
+        2021: ['1. Cyber (35%)', '2. Verbal (30%)', '3. Social (20%)'],
+        2022: ['1. Verbal (35%)', '2. Social (25%)', '3. Cyber (20%)'],
+        2023: ['1. Social (40%)', '2. Cyber (30%)', '3. Verbal (15%)'],
+        2024: ['1. Cyber (45%)', '2. Verbal (25%)', '3. Social (15%)'],
+        2025: ['1. Physical (35%)', '2. Cyber (30%)', '3. Verbal (20%)']
+    };
+
+    const ctxBar = document.getElementById('barChartCanvas').getContext('2d');
+    new Chart(ctxBar, {
+        type: 'bar',
+        data: {
+            labels: ['2020', '2021', '2022', '2023', '2024', '2025'],
+            datasets: [{
+                label: 'Total Annual Incidents',
+                data: [420, 510, 480, 560, 630, 490],
+                backgroundColor: '#a1887f', borderColor: '#333', borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: { y: { beginAtZero: true } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        afterBody: function(context) {
+                            const year = context[0].label;
+                            const top3 = top3DataByYear[year];
+                            return ['\n🔥 Top 3 Incident Types:', top3[0], top3[1], top3[2]];
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>
+</body>
+</html>
